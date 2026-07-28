@@ -1,0 +1,174 @@
+.dtech y .dteche sirven para diferenciar entre codigo y ejecutables cuando se crea un archivo (la e en .dteche SIGNIFICA ejecutable)
+
+
+<type:dtech: el encabezado sin esto el codigo no servira ademas puedes ponerle como ejecutable o codigo para ejecutable usa executable> y para codigo usa code>
+
+
+@command comando puede servir para varias cosas
+comandos: 
+
+@command.get sirve para obtener un comando 
+(subcomandos de .get: create crea una variable que debe ser especificada con int, string, bool o float ejemplo @command.get.create.variable.int.#health)  
+
+@command.affiliate.(simbolo).to# sirve para afiliar un simbolo a una variable
+
+
+@command.console.(tipo).==true o false indica si el programa dara mensajes de error a la consola tambien puede ser usado por set aunque el comando en si puede ser usado sin ningun problema sin el set 
+
+(subcomandos/tipos de .console.: 
+info muestra informacion,
+
+debug muestra cosas posiblemente necesarias para debuggear, 
+
+warning te avisa sobre cosas que podrian romper tu codigo, 
+
+error te indica los errores que occuren, 
+
+all da TODA la informacion que los demas dan incluyendo crear un archivo.log aunque el nombre todavia es customisable
+
+log crea registros de lo que todos dicen (junta todos los mensajes de consola) y los pone en un archivo .log con timestamps dentro del 
+mismo archivo.log
+(sub-subcomandos de .log: .file=="".log te deja ponerle un nombre custom a el archivo .log que se cree))
+
+
+let dejar que X variable pueda ser usada por Y variable
+
+
+array. una lista que puede ser int, bool, string o float 
+comandos de array.: get.(nombre de la lista).print consigue la lista y la imprime
+rename.(nombre) renombra una lista al nombre que quieras
+add añade una lista
+remove.(nombre) 
+
+file.(ruta). abre y mira o usa un archivo se debe especificar la ubicacion
+(subcomandos de file: read lee un archivo pre-generado o pre-hecho
+write escribe un archivo)
+
+
+for.(times) se repite las veces que le digas el bloque indicado 
+
+instruccion.(prioridad del 0 al 10) manda una instrucion a el programa que debe hacer si o si puede ser usado cuando se necesita hacer algo super importante
+
+forever se repite hasta que el programa se cierre
+
+
+return.(variable o resultado) te regresa el resultado de una suma, resta, division o multiplicacion de una variable o el resultado de una suma, resta, division o multiplicacion de un numero (int)
+
+
+import importa algo que te sea util
+imports: (no hay XD)
+
+
+if un si X cosa es,ase o usa Y cosa ejemplo if.#life.using.#health.set.#health.to.0
+else si no se logran los requerimientos del if entonces aser esto otro else.set.#health.to.100
+elseif si no se cunm
+
+while mientras que X cosa use o sea Y cosa pasa Z cosa
+
+
+function una funcion ejemplo function.velocityX.set.to.100 funciones disponibles: velocityX, velocityY y velocityZ puedes crear tu propia funcion ejemplo function.heal y despues puedes hacer heal()
+
+
+// comentario
+
+
+* multiplicar
+
+
+== igual a
+ 
+
++ sumar
+
+
+- restar
+
+
+/ dividir
+
+
+> mayor que
+
+
+< menor que
+
+
+true significa que algo es verdadero o esta prendido (hijo de bool)
+
+
+false significa que algo es falso o esta apagado (hijo de bool)
+
+
+int te deja asignarlo a una variable cuando se crea, guardar numeros positivos y negativos sin decimales
+
+
+float te deja asignarlo a una variable cuando se crea, te deja guardar numeros positivos y negativos con decimales
+
+
+string te deja asignarlo a una variable cuando se crea, sirve para representar texto usando numeros, letras y simbolos
+
+
+bool te deja asignarlo a una variable cuando se crea, sirve para representar 2 estados true y false (padre de true y false)
+
+
+variable("(nombre)") usar una variable
+
+
+# inicio de una variable ejemplo: #dinero sin el # el codigo lo ignora por completo
+
+
+print te deja poner texto asi -> ("hola mundo") resultado: hola mundo
+
+
+
+print.line.(tiempo de espera) te deja poner palabras letra por letra ejemplo: print.line.5.("hola mundo") resultado: hola mundo (letra por letra con 4 segundos de diferencia)
+
+
+
+draw.(radio).(figura) o draw.(figura).(radio) te deja dibujar figuras geometricas
+figuras:
+square (cuadrado)
+triangle (triangulo)
+circle (circulo)
+
+
+end termina el codigo
+end.repeat.(times el codigo repeat) repite el codigo las veces que le indiques
+end.wait.(tiempo en segundos que debe esperar) termina el codigo y espera la cantidad especificada en segundos
+
+send("Mensaje") manda un mensaje globalmente
+when se usa cuando se necesita especificar que aser cuando a una variable le pasa algo ejemplo when.received("mensaje").set.#health.to.100-1
+wait.(segundos) espera la candidad especificada antes de aser otra accion
+
+} cierra un bloque tiene que ser en forma de escalera ejemplo 
+     }
+    }
+   }    
+  } 
+ }
+}
+aunque
+     }
+ }}}}
+}
+tambien es valido
+
+
+, sirve para seguir comandos o parte del codigo en otra linea se puede usar infinitas comas dependiendo de que variable la usa ejemplo: @command.let.text,    ,.users  @command.test,,   ,,.users
+
+
+
+set pon algo (texto o numero) en x cosa
+
+
+
+% pon numero en x porcentage
+
+
+use dejar que X variable use Y variable
+
+
+$ pon algo (texto o numero) en X variable (funciona si lo has afiliado a una variable ejemplo: @command.affiliate.$.to.#money salida -> $(el numero que le hayas puesto con set)solo sirve para printear y de lectura para cambiar el valor se usa #(nombre de la variable))
+
+
+. es practicamente un (" ") (espacio) que se debe usar siempre que necesites un espacio ejemplos bueno: @command.get.create.variable.#test malo: @command get create variable #test
