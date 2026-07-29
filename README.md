@@ -1,6 +1,6 @@
 # D-TECH-programing-language
 this is my OWN programming language named DTECH
-dtech was created because i always wanted to maake a programming language :D DISCLAIRMER almost NO AI was used everything was wrote by MYSELF
+dtech was created because i always wanted to maake a programming language :D DISCLAIRMER almost NO AI was used everything was wrote by MYSELF (except the translation to english of the documentation)
 
 
 
