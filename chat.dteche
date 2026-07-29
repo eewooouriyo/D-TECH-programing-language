@@ -1,0 +1,16 @@
+<type:dtech:executable>
+// this is a simple chat of 1 person
+//esto es un chat simple de una persona
+@command.console.all.==true
+@command.console.log.file=="chatlog".log
+@command.get.create.variable.int.#user
+@command.get.input
+     }
+ }}}}
+}
+forever
+print(input)
+    }    
+ }}}
+}
+end.repeat200
