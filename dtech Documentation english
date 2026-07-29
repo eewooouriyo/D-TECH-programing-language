@@ -1,3 +1,4 @@
+DISCLAIRMER i translated this from spanish to english using chatGPT
 .dtech and .dteche are used to distinguish between source code and executable files when creating a file (the "e" in .dteche stands for executable).
 
 <type:dtech: This is the header. Without it, the code will not work. You can set it to executable or code. Use executable for executable files and code for source code.>
@@ -7,13 +8,26 @@ A command that can be used for various purposes.
 
 Commands:
 
+@command.get.input
+Retrieves keyboard input.
+
+@command.get.input.mouse
+Retrieves mouse input.
+
 @command.get
 Used to obtain a command.
 
 (Subcommands of .get:
-create → creates a variable that must be specified as int, string, bool, or float.
+create
+creates a variable or a object, the variable must be specified as int, string, bool, or float. 
 Example:
 @command.get.create.variable.int.#health)
+object creation:
+@command.get.create.object.ball
+Creates a circular object.
+
+@command.get.create.object.cube
+Creates a cube object.
 
 @command.affiliate.(symbol).to#
 Associates a symbol with a variable.
@@ -317,3 +331,4 @@ Correct:
 Incorrect:
 
 @command get create variable #test
+
