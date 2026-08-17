@@ -123,7 +123,7 @@ print te deja poner texto asi -> ("hola mundo") resultado: hola mundo
 
 
 
-print.line.(tiempo de espera) te deja poner palabras letra por letra ejemplo: print.line.5.("hola mundo") resultado: hola mundo (letra por letra con 4 segundos de diferencia)
+print.line.(tiempo de espera) te deja poner palabras letra por letra ejemplo: print.line.5.("hola mundo") resultado: hola mundo (letra por letra con 5 segundos de diferencia)
 
 
 
