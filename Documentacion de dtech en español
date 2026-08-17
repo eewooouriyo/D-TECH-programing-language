@@ -68,8 +68,7 @@ elseif si la condicion anterior no pasa entonces evalua una nueva condicion
 
 while mientras que X cosa use o sea Y cosa pasa Z cosa
 
-
-function una funcion ejemplo function.velocityX.set.to.100 funciones disponibles: velocityX, velocityY y velocityZ puedes crear tu propia funcion ejemplo function.heal y despues puedes hacer heal()
+function una funcion crea tu propia funcion ejemplo function.heal y despues puedes hacer heal()
 
 
 // comentario
