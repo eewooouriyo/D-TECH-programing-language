@@ -126,17 +126,7 @@ while
 Repeats as long as a condition is true.
 
 function
-Defines a function.
-
-Example:
-function.velocityX.set.to.100
-
-Built-in functions:
-velocityX
-velocityY
-velocityZ
-
-You can also create your own functions.
+define a user-created function
 
 Example:
 function.heal
@@ -144,7 +134,7 @@ function.heal
 Then call it with:
 
 heal()
-
+--------
 // Comment
 
 *
