@@ -10,8 +10,8 @@ comandos:
 @command.get sirve para obtener un comando 
 (subcomandos de .get: 
 create crea una variable o objeto, la variable debe ser especificada con int, string, bool o float ejemplo @command.get.create.variable.int.#health el objeto debe ser especificado con una forma formas: ball (Circulo) cube (cuadrado)
-input consigue el input que se este poniendo
-input.mouse consigue el imput del mouse)  
+input consigue el input que se este poniendo del teclado
+input.mouse consigue el imput del mouse
 
 @command.affiliate.(simbolo).to# sirve para afiliar un simbolo a una variable
 
