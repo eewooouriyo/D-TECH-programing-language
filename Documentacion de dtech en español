@@ -19,7 +19,8 @@ input.mouse consigue el imput del mouse)
 @command.console.(tipo).==true o false indica si el programa dara mensajes de error a la consola tambien puede ser usado por set aunque el comando en si puede ser usado sin ningun problema sin el set 
 
 (subcomandos/tipos de .console.: 
-info muestra informacion,
+info muestra informacion, y tambien puedes poner ("(tutextoaqui)") para que en la consola salga tu texto ejemplo: 
+@command.console.info("Hola desde D-TECH") salida: Hola desde D-TECH
 
 debug muestra cosas posiblemente necesarias para debuggear, 
 
