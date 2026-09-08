@@ -38,7 +38,7 @@ Determines whether the program will output console messages. It can also be used
 Console types:
 
 info
-Displays informational messages.
+Displays informational messages.and also you can input ("(yourtexthere") 
 
 debug
 Displays information useful for debugging.
