@@ -38,7 +38,8 @@ Determines whether the program will output console messages. It can also be used
 Console types:
 
 info
-Displays informational messages.and also you can input ("(yourtexthere") 
+Displays informational messages.and also you can input ("(yourtexthere") for the console to output your text, example: 
+@command.console.info("Hello from D-TECH") output: Hello from D-TECH
 
 debug
 Displays information useful for debugging.
