@@ -8,6 +8,26 @@ A command that can be used for various purposes.
 
 Commands:
 
+`@command.start.server` starts an HTTP server with an interactive console.
+
+(Subcommands of `.start.server`:
+`.port."number"` sets the port the server will listen on (default: 1)
+
+`.max.joins=="number"` sets the maximum number of IPs/connections allowed simultaneously (default: 10)
+
+The server displays:
+
+* **Server logs:** log of all incoming connections
+* **Requests:** details of each HTTP request (method, URL, client IP)
+* **Network traffic:** information about network activity
+* **SUDO@SERVER-:=>** interactive prompt for accepting or rejecting connections or entering commands
+
+Example:
+`@command.start.server.port."8080".max.joins=="5"`
+
+This starts a server on port 8080 that accepts a maximum of 5 simultaneous connections.)
+
+
 @command.get.input
 Retrieves keyboard input.
 
