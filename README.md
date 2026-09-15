@@ -2,7 +2,7 @@
 
 Welcome to **D-TECH**, my own custom programming language created from scratch!
 
-> This project was built with passion and dedication. Almost NO AI was used—everything was written by MYSELF (except the English documentation translations).
+> This Project was built with passion and dedication. Almost NO AI was used—the English documentation translation its the only thing made by ai.
 
 ---
 
