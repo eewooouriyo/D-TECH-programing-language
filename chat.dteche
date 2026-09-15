@@ -10,7 +10,7 @@
 }
 forever
 print(input)
-    }    
- }}}
+     }    
+ }}}}
 }
 end.repeat200
