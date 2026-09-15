@@ -5,7 +5,21 @@
 
 
 @command comando puede servir para varias cosas
-comandos: 
+comandos:
+
+@command.start.server inicia un servidor HTTP con consola interactiva
+(subcomandos de .start.server:
+.port."número" establece el puerto en el que escuchará el servidor (default: 1)
+.max.joins=="número" establece el máximo de IPs/conexiones permitidas simultáneamente (default: 10)
+
+El servidor muestra:
+- Server logs: registro de todas las conexiones entrantes
+- Requests: detalles de cada solicitud HTTP (método, URL, IP del cliente)
+- Network traffic: información de la actividad de red
+- SUDO@SERVER-:=> prompt interactivo para aceptar o rechazar conexiones
+Ejemplo:
+@command.start.server.port."8080".max.joins=="5"
+Esto inicia un servidor en el puerto 8080 que acepta máximo 5 conexiones simultáneas)
 
 @command.get sirve para obtener un comando 
 (subcomandos de .get: 
