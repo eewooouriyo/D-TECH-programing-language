@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const http = require("http");
 
 // ============================================================
 // D-TECH RUNTIME
@@ -104,6 +105,14 @@ const state = {
     log: {
         enabled: false,
         file: "dtech.log"
+    },
+
+    server: {
+        running: false,
+        port: 1,
+        maxJoins: 10,
+        connections: 0,
+        server: null
     },
 
     running: true,
@@ -695,6 +704,32 @@ function transformLine(line, lineNumber) {
     // ========== @command PARSER ==========
 
     if (parts[0] === "@command") {
+
+        // @command.start.server
+        if (parts[1] === "start" && parts[2] === "server") {
+
+            let port = 1;
+            let maxJoins = 10;
+
+            // @command.start.server.port."8080"
+            for (let i = 3; i < parts.length; i++) {
+                if (parts[i] === "port" && i + 1 < parts.length) {
+                    port = Number(parts[i + 1].replace(/"/g, ""));
+                }
+                // @command.start.server.max.joins=="10"
+                if (parts[i] === "max" && parts[i + 1] === "joins" && i + 2 < parts.length) {
+                    const val = parts[i + 2].split("==")[1];
+                    maxJoins = Number(val || 10);
+                }
+            }
+
+            return {
+                type: "startServer",
+                port: port,
+                maxJoins: maxJoins,
+                line: lineNumber
+            };
+        }
 
         // @command.get.create.variable.type.#name
         if (parts[1] === "get" && parts[2] === "create") {
@@ -1313,6 +1348,66 @@ async function executeNodes(nodes) {
 async function executeNode(node) {
 
     switch (node.type) {
+
+        // ----------------------------------------------------
+        // START SERVER
+        // ----------------------------------------------------
+
+        case "startServer": {
+
+            state.server.port = node.port;
+            state.server.maxJoins = node.maxJoins;
+
+            const server = http.createServer((req, res) => {
+
+                if (state.server.connections >= state.server.maxJoins) {
+
+                    const logMsg = `[SERVER] REJECTED: Max connections (${state.server.maxJoins}) reached. IP: ${req.socket.remoteAddress}`;
+                    runtimeLog(logMsg);
+
+                    res.writeHead(503);
+                    res.end("Server at max capacity");
+                    return;
+                }
+
+                state.server.connections++;
+
+                const logMsg = `[SERVER LOG] Incoming request from IP: ${req.socket.remoteAddress} | Method: ${req.method} | URL: ${req.url}`;
+                runtimeLog(logMsg);
+
+                // SUDO@SERVER prompt
+                console.log("\n🔒 SUDO@SERVER-:=>"); 
+                rl.question("Accept request? (y/n): ", (answer) => {
+
+                    if (answer.toLowerCase() === "y") {
+
+                        console.log("[SERVER] Request ACCEPTED");
+                        res.writeHead(200);
+                        res.end("OK");
+
+                    } else {
+
+                        console.log("[SERVER] Request REJECTED");
+                        res.writeHead(403);
+                        res.end("Forbidden");
+                    }
+
+                    state.server.connections--;
+                });
+            });
+
+            server.listen(state.server.port, () => {
+
+                dtechInfo(`Server started on port ${state.server.port}`);
+                dtechInfo(`Max connections allowed: ${state.server.maxJoins}`);
+                console.log("\n📡 Server console active. Waiting for requests...\n");
+            });
+
+            state.server.server = server;
+            state.server.running = true;
+
+            return null;
+        }
 
         // ----------------------------------------------------
         // VARIABLE
