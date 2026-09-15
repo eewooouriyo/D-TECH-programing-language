@@ -714,6 +714,7 @@ function transformLine(line, lineNumber) {
 
     const parts =
         line.split(".");
+
     // ========================================================
     // NETWORK
     // ========================================================
@@ -1500,8 +1501,9 @@ async function executeNodes(nodes) {
 }
 
 // ============================================================
-// SERVER
+// SERVER / NETWORK CLIENT
 // ============================================================
+
 function startNetworkClient() {
     return new Promise((resolve) => {
         const python = spawn(
@@ -1532,6 +1534,10 @@ function startNetworkClient() {
         });
     });
 }
+
+// ============================================================
+// SERVER CONSOLE
+// ============================================================
 
 function showServerPrompt() {
     if (
@@ -1914,11 +1920,17 @@ rl.on("line", async input => {
 async function executeNode(node) {
 
     switch (node.type) {
-case "networkConnect":
 
-    await startNetworkClient();
+        // ====================================================
+        // NETWORK
+        // ====================================================
 
-    return null;
+        case "networkConnect":
+
+            await startNetworkClient();
+
+            return null;
+
         // ====================================================
         // SERVER
         // ====================================================
