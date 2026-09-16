@@ -20,6 +20,8 @@ El servidor muestra:
 Ejemplo:
 @command.start.server.port."8080".max.joins=="5"
 Esto inicia un servidor en el puerto 8080 que acepta máximo 5 conexiones simultáneas)
+puedes conectarte a los servers usando
+network.connect en tu codigo)
 
 @command.get sirve para obtener un comando 
 (subcomandos de .get: 
