@@ -4,41 +4,21 @@ const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
 const http = require("http");
+const { spawn } = require("child_process");
 
 // ============================================================
 // D-TECH RUNTIME
 // ============================================================
-//
-// .dtech  = código
-// .dteche = ejecutable
-//
-// Flujo:
-//
-// D-TECH SOURCE
-//      ↓
-// LEXER / PARSER
-//      ↓
-// D-TECH AST
-//      ↓
-// EXECUTOR
-//
-// ============================================================
-
-
-// ============================================================
-// ANTI LOOP
-// ============================================================
 
 if (globalThis.__DTECH_RUNNING__) {
-    console.error("DTECH: ya hay una instancia ejecutándose.");
+    console.error("DTECH: another instance is already running.");
     process.exit(1);
 }
 
 globalThis.__DTECH_RUNNING__ = true;
 
-
 // ============================================================
-// ARCHIVO
+// FILE
 // ============================================================
 
 const file = process.argv[2];
@@ -46,24 +26,23 @@ const file = process.argv[2];
 if (!file) {
     console.log("D-TECH Runtime");
     console.log("");
-    console.log("Uso:");
-    console.log("  node DTECH_interpreter.js archivo.dtech");
+    console.log("Usage:");
+    console.log("  node DTECH_interpreter.js file.dtech");
     process.exit(1);
 }
 
 if (!fs.existsSync(file)) {
-    console.error("DTECH ERROR: archivo no encontrado.");
+    console.error("DTECH ERROR: file not found.");
     process.exit(1);
 }
 
 const extension = path.extname(file).toLowerCase();
 
 if (extension !== ".dtech" && extension !== ".dteche") {
-    console.error("DTECH ERROR: extensión inválida.");
-    console.error("Se esperaba .dtech o .dteche.");
+    console.error("DTECH ERROR: invalid extension.");
+    console.error("Expected .dtech or .dteche.");
     process.exit(1);
 }
-
 
 // ============================================================
 // INPUT
@@ -74,32 +53,25 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-
 // ============================================================
-// ESTADO DEL RUNTIME
+// STATE
 // ============================================================
 
 const state = {
-
     variables: {},
-
     tipos: {},
-
     arrays: {},
-
     afiliaciones: {},
-
     funciones: {},
-
     eventos: {},
-
     imports: [],
 
     console: {
-        info: true,
-        debug: true,
-        warning: true,
-        error: true
+        info: false,
+        debug: false,
+        warning: false,
+        error: false,
+        all: false
     },
 
     log: {
@@ -112,78 +84,105 @@ const state = {
         port: 1,
         maxJoins: 10,
         connections: 0,
-        server: null
+        server: null,
+        consoleActive: false,
+        clients: [],
+        pendingRequests: new Map(),
+        nextRequestId: 1
     },
 
     running: true,
-
     returnValue: undefined
 };
 
-
 // ============================================================
-// UTILIDADES
+// CONSOLE LOGGING
 // ============================================================
 
 function dtechError(message, line = null) {
-
-    if (!state.console.error) {
-        return;
-    }
-
     if (line !== null) {
-        console.error(`DTECH ERROR [línea ${line}]: ${message}`);
+        console.error(
+            `DTECH ERROR [line ${line}]: ${message}`
+        );
     } else {
-        console.error(`DTECH ERROR: ${message}`);
+        console.error(
+            `DTECH ERROR: ${message}`
+        );
     }
 }
-
 
 function dtechInfo(message) {
+    if (
+        state.console.all ||
+        state.console.info
+    ) {
+        const output =
+            `[DTECH INFO] ${message}`;
 
-    if (state.console.info) {
-        console.log(`[DTECH INFO] ${message}`);
+        console.log(output);
+        writeLog(output);
     }
 }
-
 
 function dtechDebug(message) {
+    if (
+        state.console.all ||
+        state.console.debug
+    ) {
+        const output =
+            `[DTECH DEBUG] ${message}`;
 
-    if (state.console.debug) {
-        console.log(`[DTECH DEBUG] ${message}`);
+        console.log(output);
+        writeLog(output);
     }
 }
-
 
 function dtechWarning(message) {
+    if (
+        state.console.all ||
+        state.console.warning
+    ) {
+        const output =
+            `[DTECH WARNING] ${message}`;
 
-    if (state.console.warning) {
-        console.warn(`[DTECH WARNING] ${message}`);
+        console.warn(output);
+        writeLog(output);
     }
 }
 
+function dtechOptionalError(message) {
+    if (
+        state.console.all ||
+        state.console.error
+    ) {
+        const output =
+            `[DTECH ERROR] ${message}`;
+
+        console.error(output);
+        writeLog(output);
+    }
+}
 
 function writeLog(message) {
-
     if (!state.log.enabled) {
         return;
     }
 
-    const timestamp = new Date().toISOString();
+    try {
+        const timestamp =
+            new Date().toISOString();
 
-    fs.appendFileSync(
-        state.log.file,
-        `[${timestamp}] ${message}\n`
-    );
+        fs.appendFileSync(
+            state.log.file,
+            `[${timestamp}] ${message}\n`,
+            "utf8"
+        );
+    } catch (error) {
+        console.error(
+            `DTECH ERROR: could not write log file: ${error.message}`
+        );
+    }
 }
-
-
-function runtimeLog(message) {
-
-    writeLog(message);
-    console.log(message);
-}
-
 
 // ============================================================
 // VARIABLES
@@ -196,42 +195,38 @@ function hasVariable(name) {
     );
 }
 
-
 function getVariable(name) {
-
     if (!hasVariable(name)) {
-        dtechWarning(`La variable ${name} no existe.`);
+        dtechWarning(
+            `Variable ${name} does not exist.`
+        );
+
         return undefined;
     }
 
     return state.variables[name];
 }
 
-
 function setVariable(name, value) {
-
-    state.variables[name] = value;
-
     if (state.tipos[name]) {
-
-        const tipo = state.tipos[name];
+        const tipo =
+            state.tipos[name];
 
         if (!validateType(value, tipo)) {
-
             dtechError(
-                `El valor de ${name} no coincide con el tipo ${tipo}.`
+                `Value of ${name} does not match type ${tipo}.`
             );
 
             return;
         }
     }
+
+    state.variables[name] =
+        value;
 }
 
-
 function validateType(value, type) {
-
     switch (type) {
-
         case "int":
             return Number.isInteger(value);
 
@@ -249,38 +244,42 @@ function validateType(value, type) {
     }
 }
 
-
 // ============================================================
-// REEMPLAZAR VARIABLES
+// TEXT VARIABLES
 // ============================================================
 
 function replaceVariables(text) {
-
     text = String(text);
 
     for (const name of Object.keys(state.variables)) {
+        const value =
+            state.variables[name];
 
-        const value = state.variables[name];
-
-        if (value === undefined || value === null) {
+        if (
+            value === undefined ||
+            value === null
+        ) {
             continue;
         }
 
-        const escaped = name.replace(
-            /[.*+?^${}()|[\]\\]/g,
-            "\\$&"
-        );
+        const escaped =
+            name.replace(
+                /[.*+?^${}()|[\]\\]/g,
+                "\\$&"
+            );
 
-        text = text.replace(
-            new RegExp(escaped, "g"),
-            String(value)
-        );
+        text =
+            text.replace(
+                new RegExp(escaped, "g"),
+                String(value)
+            );
     }
 
-    // símbolo $
-
-    for (const symbol of Object.keys(state.afiliaciones)) {
-
+    for (
+        const symbol of Object.keys(
+            state.afiliaciones
+        )
+    ) {
         const variable =
             state.afiliaciones[symbol];
 
@@ -288,250 +287,236 @@ function replaceVariables(text) {
             state.variables[variable];
 
         if (value !== undefined) {
-
-            text = text.replace(
-                /\$/g,
-                String(value)
-            );
+            text =
+                text.replace(
+                    /\$/g,
+                    String(value)
+                );
         }
     }
 
     return text;
 }
 
-
 // ============================================================
-// EVALUADOR
+// EVALUATOR
 // ============================================================
 
 function evaluate(value) {
-
-    if (value === undefined || value === null) {
+    if (
+        value === undefined ||
+        value === null
+    ) {
         return undefined;
     }
 
-    value = String(value).trim();
-
-    // STRING
+    value =
+        String(value).trim();
 
     if (
         value.startsWith('"') &&
         value.endsWith('"')
     ) {
-
         return replaceVariables(
             value.slice(1, -1)
         );
     }
 
-
-    // TRUE
-
     if (value === "true") {
         return true;
     }
-
-
-    // FALSE
 
     if (value === "false") {
         return false;
     }
 
-
-    // VARIABLE
-
     if (
         value.startsWith("#") &&
         hasVariable(value)
     ) {
-
         return getVariable(value);
     }
-
-
-    // ARRAY
 
     if (
         value.startsWith("#") &&
         state.arrays[value]
     ) {
-
         return state.arrays[value];
     }
-
-
-    // OPERACIÓN
 
     return evaluateExpression(value);
 }
 
-
 // ============================================================
-// EXPRESIONES
+// EXPRESSIONS
 // ============================================================
 
 function evaluateExpression(expression) {
+    expression =
+        String(expression).trim();
 
-    expression = replaceVariables(
-        String(expression).trim()
-    );
-
-    // igualdad
+    if (
+        expression.startsWith('"') &&
+        expression.endsWith('"')
+    ) {
+        return evaluate(expression);
+    }
 
     if (expression.includes("==")) {
-
         const parts =
             expression.split("==");
 
-        return evaluateExpression(parts[0]) ===
-               evaluateExpression(parts.slice(1).join("=="));
+        return (
+            evaluateExpression(parts[0]) ===
+            evaluateExpression(
+                parts.slice(1).join("==")
+            )
+        );
     }
 
-
-    // mayor
-
     if (expression.includes(">")) {
-
         const parts =
             expression.split(">");
 
-        return Number(
-            evaluateExpression(parts[0])
-        ) >
-        Number(
-            evaluateExpression(parts.slice(1).join(">"))
+        return (
+            Number(
+                evaluateExpression(parts[0])
+            ) >
+            Number(
+                evaluateExpression(
+                    parts.slice(1).join(">")
+                )
+            )
         );
     }
 
-
-    // menor
-
     if (expression.includes("<")) {
-
         const parts =
             expression.split("<");
 
-        return Number(
-            evaluateExpression(parts[0])
-        ) <
-        Number(
-            evaluateExpression(parts.slice(1).join("<"))
+        return (
+            Number(
+                evaluateExpression(parts[0])
+            ) <
+            Number(
+                evaluateExpression(
+                    parts.slice(1).join("<")
+                )
+            )
         );
     }
 
-
-    // suma
-
-    const plus = splitMath(expression, "+");
+    const plus =
+        splitMath(expression, "+");
 
     if (plus.length > 1) {
-
         return plus.reduce(
             (a, b) =>
                 Number(a) +
-                Number(evaluateExpression(b)),
+                Number(
+                    evaluateExpression(b)
+                ),
             0
         );
     }
-
-
-    // resta
 
     const minus =
         splitMath(expression, "-");
 
     if (minus.length > 1) {
-
         let result =
-            Number(evaluateExpression(minus[0]));
+            Number(
+                evaluateExpression(
+                    minus[0]
+                )
+            );
 
-        for (let i = 1; i < minus.length; i++) {
-
+        for (
+            let i = 1;
+            i < minus.length;
+            i++
+        ) {
             result -= Number(
-                evaluateExpression(minus[i])
+                evaluateExpression(
+                    minus[i]
+                )
             );
         }
 
         return result;
     }
 
-
-    // multiplicación
-
     const multiply =
         splitMath(expression, "*");
 
     if (multiply.length > 1) {
-
         return multiply.reduce(
             (a, b) =>
                 Number(a) *
-                Number(evaluateExpression(b)),
+                Number(
+                    evaluateExpression(b)
+                ),
             1
         );
     }
-
-
-    // división
 
     const divide =
         splitMath(expression, "/");
 
     if (divide.length > 1) {
-
         let result =
-            Number(evaluateExpression(divide[0]));
+            Number(
+                evaluateExpression(
+                    divide[0]
+                )
+            );
 
-        for (let i = 1; i < divide.length; i++) {
-
+        for (
+            let i = 1;
+            i < divide.length;
+            i++
+        ) {
             result /=
                 Number(
-                    evaluateExpression(divide[i])
+                    evaluateExpression(
+                        divide[i]
+                    )
                 );
         }
 
         return result;
     }
 
-
-    // número
-
     if (
         expression !== "" &&
-        !Number.isNaN(Number(expression))
+        !Number.isNaN(
+            Number(expression)
+        )
     ) {
-
         return Number(expression);
     }
-
-
-    // variable
 
     if (hasVariable(expression)) {
         return getVariable(expression);
     }
 
-
     return expression;
 }
 
-
 function splitMath(expression, operator) {
-
     return expression
         .split(operator)
         .map(x => x.trim())
         .filter(x => x !== "");
 }
 
+// ============================================================
+// PARSER
+// ============================================================
 
-// ============================================================
-// LECTOR DE BLOQUES
-// ============================================================
 function parseSource(content) {
-
-    const lines = content.split(/\r?\n/);
+    const lines =
+        content.split(/\r?\n/);
 
     const root = [];
     const stack = [root];
@@ -539,74 +524,57 @@ function parseSource(content) {
     let headerFound = false;
     let headerType = null;
 
-    for (let i = 0; i < lines.length; i++) {
+    for (
+        let i = 0;
+        i < lines.length;
+        i++
+    ) {
+        const lineNumber =
+            i + 1;
 
-        const lineNumber = i + 1;
-
-        let line = lines[i]
-            .replace(/^\uFEFF/, "")
-            .replace(/^\u200B/, "")
-            .trim();
+        let line =
+            lines[i]
+                .replace(/^\uFEFF/, "")
+                .replace(/^\u200B/, "")
+                .trim();
 
         if (!line) {
             continue;
         }
 
-        // COMENTARIOS
-
         if (line.startsWith("//")) {
             continue;
         }
 
-        // HEADER
-
-        const normalizedHeader = line
-            .replace(/^\uFEFF/, "")
-            .replace(/^\u200B/, "")
-            .trim();
-
         if (
-            /^<type:dtech:(executable|code)>$/.test(
-                normalizedHeader
-            )
+            /^<type:dtech:(executable|code)>$/.test(line)
         ) {
+            if (headerFound) {
+                dtechError(
+                    "Duplicate D-TECH header.",
+                    lineNumber
+                );
+
+                continue;
+            }
 
             headerFound = true;
 
-            if (
-                normalizedHeader ===
-                "<type:dtech:executable>"
-            ) {
-                headerType = "executable";
-            }
-
-            if (
-                normalizedHeader ===
-                "<type:dtech:code>"
-            ) {
-                headerType = "code";
-            }
+            headerType =
+                line === "<type:dtech:executable>"
+                    ? "executable"
+                    : "code";
 
             continue;
         }
-
-        // IGNORAR COMENTARIOS #
 
         if (
-            line.startsWith("#") &&
-            !line.match(/^#\w+/)
+            line === "end" ||
+            line === "}"
         ) {
-            continue;
-        }
-
-        // END DE BLOQUE (supports both "end" and "}")
-
-        if (line === "end" || line === "}") {
-
             if (stack.length <= 1) {
-
                 dtechError(
-                    "END sin bloque abierto.",
+                    "END without an open nested block.",
                     lineNumber
                 );
 
@@ -614,11 +582,8 @@ function parseSource(content) {
             }
 
             stack.pop();
-
             continue;
         }
-
-        // TRANSFORMAR
 
         const node =
             transformLine(
@@ -626,25 +591,20 @@ function parseSource(content) {
                 lineNumber
             );
 
-        // BLOQUE
-
         if (node.type === "block") {
-
-            stack[stack.length - 1].push(node);
+            stack[
+                stack.length - 1
+            ].push(node);
 
             stack.push(node.body);
 
             continue;
         }
 
-        // ELSEIF
-
         if (node.type === "elseIf") {
-
             if (stack.length <= 1) {
-
                 dtechError(
-                    "ELSEIF sin bloque.",
+                    "ELSEIF without a previous block.",
                     lineNumber
                 );
 
@@ -654,7 +614,9 @@ function parseSource(content) {
             stack.pop();
 
             const parent =
-                stack[stack.length - 1];
+                stack[
+                    stack.length - 1
+                ];
 
             parent.push(node);
 
@@ -663,26 +625,20 @@ function parseSource(content) {
             continue;
         }
 
-        // COMANDO NORMAL
-
-        stack[stack.length - 1].push(node);
+        stack[
+            stack.length - 1
+        ].push(node);
     }
 
-    // BLOQUES SIN CERRAR
-
-    if (stack.length > 1) {
-
-        dtechError(
-            "Hay bloques sin cerrar."
+    if (!headerFound) {
+        throw new Error(
+            "Missing <type:dtech:executable> or <type:dtech:code>."
         );
     }
 
-    // HEADER FALTANTE
-
-    if (!headerFound) {
-
-        throw new Error(
-            "Falta <type:dtech:executable> o <type:dtech:code> en la línea 1"
+    if (stack.length > 1) {
+        dtechError(
+            "One or more nested D-TECH blocks were not closed."
         );
     }
 
@@ -693,626 +649,833 @@ function parseSource(content) {
 }
 
 // ============================================================
-// TRANSFORMADOR - DYNAMIC COMMAND PARSER
+// TRANSFORMER
 // ============================================================
 
 function transformLine(line, lineNumber) {
 
-    // SPLIT BY DOTS FOR DYNAMIC PARSING
-    const parts = line.split(".");
+    // --------------------------------------------------------
+    // PRINT
+    // --------------------------------------------------------
 
-    // ========== @command PARSER ==========
+    if (line.startsWith("print(")) {
+        const match =
+            line.match(
+                /^print\s*\("([\s\S]*)"\)$/
+            );
+
+        if (match) {
+            return {
+                type: "print",
+                text: match[1],
+                line: lineNumber
+            };
+        }
+    }
+
+    // --------------------------------------------------------
+    // SEND
+    // --------------------------------------------------------
+
+    if (line.startsWith("send(")) {
+        const match =
+            line.match(
+                /^send\("([\s\S]*)"\)$/
+            );
+
+        if (match) {
+            return {
+                type: "send",
+                text: match[1],
+                line: lineNumber
+            };
+        }
+    }
+
+    // --------------------------------------------------------
+    // PRINT.LINE
+    // --------------------------------------------------------
+
+    if (line.startsWith("print.line.")) {
+        const match =
+            line.match(
+                /^print\.line\.(\d+(?:\.\d+)?)\.\("([\s\S]*)"\)$/
+            );
+
+        if (match) {
+            return {
+                type: "printLine",
+                delay: match[1],
+                text: match[2],
+                line: lineNumber
+            };
+        }
+    }
+
+    const parts =
+        line.split(".");
+    // ========================================================
+    // NETWORK
+    // ========================================================
+
+    if (
+        parts[0] === "network" &&
+        parts[1] === "connect"
+    ) {
+        return {
+            type: "networkConnect",
+            line: lineNumber
+        };
+    }
+
+    // ========================================================
+    // @COMMAND
+    // ========================================================
 
     if (parts[0] === "@command") {
 
-        // @command.start.server
-        if (parts[1] === "start" && parts[2] === "server") {
+        // ----------------------------------------------------
+        // SERVER
+        // ----------------------------------------------------
 
+        if (
+            parts[1] === "start" &&
+            parts[2] === "server"
+        ) {
             let port = 1;
             let maxJoins = 10;
 
-            // @command.start.server.port."8080"
-            for (let i = 3; i < parts.length; i++) {
-                if (parts[i] === "port" && i + 1 < parts.length) {
-                    port = Number(parts[i + 1].replace(/"/g, ""));
+            for (
+                let i = 3;
+                i < parts.length;
+                i++
+            ) {
+                if (
+                    parts[i] === "port" &&
+                    i + 1 < parts.length
+                ) {
+                    port =
+                        Number(
+                            parts[i + 1]
+                                .replace(/"/g, "")
+                                .replace(/^==/, "")
+                        );
                 }
-                // @command.start.server.max.joins=="10"
-                if (parts[i] === "max" && parts[i + 1] === "joins" && i + 2 < parts.length) {
-                    const val = parts[i + 2].split("==")[1];
-                    maxJoins = Number(val || 10);
+
+                if (
+                    parts[i] === "max" &&
+                    parts[i + 1] === "joins" &&
+                    i + 2 < parts.length
+                ) {
+                    const raw =
+                        parts[i + 2];
+
+                    const val =
+                        raw.includes("==")
+                            ? raw.split("==")[1]
+                            : raw;
+
+                    maxJoins =
+                        Number(
+                            String(val)
+                                .replace(/"/g, "")
+                        );
                 }
             }
 
             return {
                 type: "startServer",
-                port: port,
-                maxJoins: maxJoins,
+                port,
+                maxJoins,
                 line: lineNumber
             };
         }
 
-        // @command.get.create.variable.type.#name
-        if (parts[1] === "get" && parts[2] === "create") {
+        // ----------------------------------------------------
+        // CREATE
+        // ----------------------------------------------------
 
+        if (
+            parts[1] === "get" &&
+            parts[2] === "create"
+        ) {
             if (parts[3] === "variable") {
-
-                const dataType = parts[4] || null;
-                const varName = parts[5];
-
                 return {
                     type: "createVariable",
-                    dataType: dataType,
-                    name: varName,
-                    line: lineNumber
+                    dataType:
+                        parts[4] || null,
+                    name:
+                        parts[5],
+                    line:
+                        lineNumber
                 };
             }
 
-            // @command.get.create.array.type.#name
             if (parts[3] === "array") {
-
-                const arrayType = parts[4];
-                const arrayName = parts[5];
-
                 return {
                     type: "arrayCreate",
-                    dataType: arrayType,
-                    name: arrayName,
-                    line: lineNumber
+                    dataType:
+                        parts[4],
+                    name:
+                        parts[5],
+                    line:
+                        lineNumber
                 };
             }
 
-            // @command.get.create.object.shape.#name
             if (parts[3] === "object") {
-
-                const shape = parts[4];
-                const objName = parts[5];
-
                 return {
                     type: "createObject",
-                    shape: shape,
-                    name: objName,
-                    line: lineNumber
+                    shape:
+                        parts[4],
+                    name:
+                        parts[5],
+                    line:
+                        lineNumber
                 };
             }
         }
 
-        // @command.get.input or @command.get.input.mouse
-        if (parts[1] === "get" && parts[2] === "input") {
+        // ----------------------------------------------------
+        // INPUT
+        // ----------------------------------------------------
 
+        if (
+            parts[1] === "get" &&
+            parts[2] === "input"
+        ) {
             if (parts[3] === "mouse") {
-
                 return {
                     type: "mouseInput",
-                    line: lineNumber
+                    line:
+                        lineNumber
                 };
             }
 
             return {
                 type: "input",
-                line: lineNumber
+                line:
+                    lineNumber
             };
         }
 
-        // @command.affiliate.symbol.to.#variable
+        // ----------------------------------------------------
+        // AFFILIATE
+        // ----------------------------------------------------
+
         if (parts[1] === "affiliate") {
-
-            const symbol = parts[2];
-            // parts[3] is "to"
-            const variable = parts[4];
-
             return {
                 type: "affiliate",
-                symbol: symbol,
-                variable: variable,
-                line: lineNumber
+                symbol:
+                    parts[2],
+                variable:
+                    parts[4],
+                line:
+                    lineNumber
             };
         }
 
-        // @command.console.type or @command.console.type==value
+        // ----------------------------------------------------
+        // CONSOLE
+        // ----------------------------------------------------
+
         if (parts[1] === "console") {
 
-            const consoleType = parts[2];
+            // ONLY INFO supports message syntax:
+            // @command.console.info("message")
+            const infoMessageMatch =
+                line.match(
+                    /^@command\.console\.info\("([\s\S]*)"\)$/
+                );
 
-            // Check for ==value pattern
-            let value = true;
+            if (infoMessageMatch) {
+                return {
+                    type: "consoleInfoMessage",
+                    message:
+                        infoMessageMatch[1],
+                    line:
+                        lineNumber
+                };
+            }
 
-            if (consoleType.includes("==")) {
+            // @command.console.log.file=="server".log
+            const logFileMatch =
+                line.match(
+                    /^@command\.console\.log\.file=="([^"]+)"\.log$/
+                );
 
-                const [type, val] =
-                    consoleType.split("==");
+            if (logFileMatch) {
+                return {
+                    type: "logFile",
+                    file:
+                        logFileMatch[1],
+                    line:
+                        lineNumber
+                };
+            }
 
-                const mode = type;
-                value = val === "true" ? true : false;
+            const consoleType =
+                parts[2];
 
-                // @command.console.log.file=="filename"
-                if (mode === "log" && parts[3] === "file") {
+            const validConsoleTypes = [
+                "info",
+                "debug",
+                "warning",
+                "error",
+                "all"
+            ];
 
-                    const filename =
-                        parts.slice(4).join(".")
-                            .replace(/^=="/, "")
-                            .replace(/"$/, "");
+            if (
+                validConsoleTypes.includes(
+                    consoleType
+                )
+            ) {
+                let value = true;
 
-                    return {
-                        type: "logFile",
-                        file: filename,
-                        line: lineNumber
-                    };
+                if (parts[3]) {
+                    const raw =
+                        parts[3]
+                            .replace(
+                                /^==/,
+                                ""
+                            )
+                            .toLowerCase();
+
+                    if (
+                        raw === "true" ||
+                        raw === "false"
+                    ) {
+                        value =
+                            raw === "true";
+                    }
                 }
 
                 return {
                     type: "console",
-                    mode: mode,
-                    value: value,
-                    line: lineNumber
+                    mode:
+                        consoleType,
+                    value,
+                    line:
+                        lineNumber
                 };
             }
 
-            // Simple @command.console.type
             return {
-                type: "console",
-                mode: consoleType,
-                value: true,
-                line: lineNumber
+                type: "unknown",
+                source:
+                    line,
+                line:
+                    lineNumber
             };
         }
 
-        // @command.let.#dest.#source
+        // ----------------------------------------------------
+        // LET
+        // ----------------------------------------------------
+
         if (parts[1] === "let") {
-
-            const destination = parts[2];
-            const source = parts[3];
-
             return {
                 type: "let",
-                destination: destination,
-                source: source,
-                line: lineNumber
+                destination:
+                    parts[2],
+                source:
+                    parts[3],
+                line:
+                    lineNumber
             };
         }
     }
 
-    // ========== SET PARSER - DYNAMIC ==========
-    // set.#variable.to.value
-    // set.#variable:value (alternative syntax)
+    // ========================================================
+    // SET
+    // ========================================================
 
     if (parts[0] === "set") {
+        const varName =
+            parts[1];
 
-        const varName = parts[1];
-
-        // Handle set.#var:value syntax
-        if (varName.includes(":")) {
-
-            const [name, value] =
-                varName.split(":");
+        if (
+            varName &&
+            varName.includes(":")
+        ) {
+            const index =
+                varName.indexOf(":");
 
             return {
                 type: "set",
-                name: name,
-                value: value,
-                line: lineNumber
+                name:
+                    varName.slice(
+                        0,
+                        index
+                    ),
+                value:
+                    varName.slice(
+                        index + 1
+                    ),
+                line:
+                    lineNumber
             };
         }
 
-        // Handle set.#var.to.value syntax
         if (parts[2] === "to") {
-
-            const value = parts.slice(3).join(".");
-
             return {
                 type: "set",
-                name: varName,
-                value: value,
-                line: lineNumber
+                name:
+                    varName,
+                value:
+                    parts
+                        .slice(3)
+                        .join("."),
+                line:
+                    lineNumber
             };
         }
 
-        // Fallback
         return {
             type: "unknown",
-            source: line,
-            line: lineNumber
+            source:
+                line,
+            line:
+                lineNumber
         };
     }
 
-    // ========== ARRAY COMMANDS ==========
+    // ========================================================
+    // ARRAYS
+    // ========================================================
 
-    // array.type.#name
-    if (parts[0] === "array" && 
-        ["int", "string", "bool", "float"].includes(parts[1])) {
-
-        const dataType = parts[1];
-        const arrayName = parts[2];
-
+    if (
+        parts[0] === "array" &&
+        [
+            "int",
+            "string",
+            "bool",
+            "float"
+        ].includes(parts[1])
+    ) {
         return {
             type: "arrayCreate",
-            dataType: dataType,
-            name: arrayName,
-            line: lineNumber
+            dataType:
+                parts[1],
+            name:
+                parts[2],
+            line:
+                lineNumber
         };
     }
 
-    // array.add.#name.value
-    if (parts[0] === "array" && parts[1] === "add") {
-
-        const arrayName = parts[2];
-        const value = parts.slice(3).join(".");
-
+    if (
+        parts[0] === "array" &&
+        parts[1] === "add"
+    ) {
         return {
             type: "arrayAdd",
-            name: arrayName,
-            value: value,
-            line: lineNumber
+            name:
+                parts[2],
+            value:
+                parts
+                    .slice(3)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // array.remove.#name
-    if (parts[0] === "array" && parts[1] === "remove") {
-
+    if (
+        parts[0] === "array" &&
+        parts[1] === "remove"
+    ) {
         return {
             type: "arrayRemove",
-            name: parts[2],
-            line: lineNumber
+            name:
+                parts[2],
+            line:
+                lineNumber
         };
     }
 
-    // array.get.#name.print
-    if (parts[0] === "array" && 
-        parts[1] === "get" && 
-        parts[3] === "print") {
-
+    if (
+        parts[0] === "array" &&
+        parts[1] === "get" &&
+        parts[3] === "print"
+    ) {
         return {
             type: "arrayPrint",
-            name: parts[2],
-            line: lineNumber
+            name:
+                parts[2],
+            line:
+                lineNumber
         };
     }
 
-    // array.rename.#oldName.#newName
-    if (parts[0] === "array" && parts[1] === "rename") {
-
+    if (
+        parts[0] === "array" &&
+        parts[1] === "rename"
+    ) {
         return {
             type: "arrayRename",
-            oldName: parts[2],
-            newName: parts[3],
-            line: lineNumber
+            oldName:
+                parts[2],
+            newName:
+                parts[3],
+            line:
+                lineNumber
         };
     }
 
-    // ========== FILE OPERATIONS ==========
+    // ========================================================
+    // FILES
+    // ========================================================
 
-    // file.path.read
-    if (parts[0] === "file" && parts[parts.length - 1] === "read") {
-
-        const filepath =
-            parts.slice(1, -1).join(".");
-
+    if (
+        parts[0] === "file" &&
+        parts[
+            parts.length - 1
+        ] === "read"
+    ) {
         return {
             type: "fileRead",
-            file: filepath,
-            line: lineNumber
+            file:
+                parts
+                    .slice(
+                        1,
+                        -1
+                    )
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // file.path.write.value
-    if (parts[0] === "file" && parts[parts.length - 2] === "write") {
-
-        const filepath =
-            parts.slice(1, -2).join(".");
-
-        const value = parts[parts.length - 1];
-
+    if (
+        parts[0] === "file" &&
+        parts[
+            parts.length - 2
+        ] === "write"
+    ) {
         return {
             type: "fileWrite",
-            file: filepath,
-            value: value,
-            line: lineNumber
+            file:
+                parts
+                    .slice(
+                        1,
+                        -2
+                    )
+                    .join("."),
+            value:
+                parts[
+                    parts.length - 1
+                ],
+            line:
+                lineNumber
         };
     }
 
-    // ========== CONTROL FLOW ==========
+    // ========================================================
+    // CONTROL
+    // ========================================================
 
-    // for.value
     if (parts[0] === "for") {
-
-        const value = parts.slice(1).join(".");
-
         return {
             type: "block",
-            blockType: "for",
-            value: value,
+            blockType:
+                "for",
+            value:
+                parts
+                    .slice(1)
+                    .join("."),
             body: [],
-            line: lineNumber
+            line:
+                lineNumber
         };
     }
 
-    // forever
     if (line === "forever") {
-
         return {
             type: "block",
-            blockType: "forever",
+            blockType:
+                "forever",
             body: [],
-            line: lineNumber
+            line:
+                lineNumber
         };
     }
 
-    // if.condition
     if (parts[0] === "if") {
-
-        const condition = parts.slice(1).join(".");
-
         return {
             type: "block",
-            blockType: "if",
-            condition: condition,
+            blockType:
+                "if",
+            condition:
+                parts
+                    .slice(1)
+                    .join("."),
             body: [],
-            line: lineNumber
+            line:
+                lineNumber
         };
     }
 
-    // while.condition
     if (parts[0] === "while") {
-
-        const condition = parts.slice(1).join(".");
-
         return {
             type: "block",
-            blockType: "while",
-            condition: condition,
+            blockType:
+                "while",
+            condition:
+                parts
+                    .slice(1)
+                    .join("."),
             body: [],
-            line: lineNumber
+            line:
+                lineNumber
         };
     }
 
-    // function.name
     if (parts[0] === "function") {
-
-        const funcName = parts[1];
-
         return {
             type: "block",
-            blockType: "function",
-            name: funcName,
+            blockType:
+                "function",
+            name:
+                parts[1],
             body: [],
-            line: lineNumber
+            line:
+                lineNumber
         };
     }
 
-    // else.command
     if (parts[0] === "else") {
-
-        const command = parts.slice(1).join(".");
-
         return {
             type: "else",
-            command: command,
-            line: lineNumber
+            command:
+                parts
+                    .slice(1)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // elseif.condition
     if (parts[0] === "elseif") {
-
-        const condition = parts.slice(1).join(".");
-
         return {
             type: "elseIf",
-            condition: condition,
+            condition:
+                parts
+                    .slice(1)
+                    .join("."),
             body: [],
-            line: lineNumber
+            line:
+                lineNumber
         };
     }
 
-    // ========== OTHER COMMANDS ==========
+    // ========================================================
+    // OTHER
+    // ========================================================
 
-    // return.value
     if (parts[0] === "return") {
-
-        const value = parts.slice(1).join(".");
-
         return {
             type: "return",
-            value: value,
-            line: lineNumber
+            value:
+                parts
+                    .slice(1)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // import statement
     if (parts[0] === "import") {
-
-        const name = parts.slice(1).join(".");
-
         return {
             type: "import",
-            name: name,
-            line: lineNumber
+            name:
+                parts
+                    .slice(1)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // instruccion.priority.command
     if (parts[0] === "instruccion") {
-
-        const priority = Number(parts[1]);
-        const command = parts.slice(2).join(".");
-
         return {
             type: "instruction",
-            priority: priority,
-            command: command,
-            line: lineNumber
+            priority:
+                Number(parts[1]),
+            command:
+                parts
+                    .slice(2)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // print.line.delay.("text")
-    if (parts[0] === "print" && parts[1] === "line") {
-
-        const delayMatch = line.match(/print\.line\.(\d+(?:\.\d+)?)\.\("([\s\S]*)"\)/);
-
-        if (delayMatch) {
-
-            return {
-                type: "printLine",
-                delay: delayMatch[1],
-                text: delayMatch[2],
-                line: lineNumber
-            };
-        }
-    }
-
-    // print("text")
-    if (parts[0] === "print") {
-
-        const printMatch = line.match(/print\s*\("([\s\S]*)"\)/);
-
-        if (printMatch) {
-
-            return {
-                type: "print",
-                text: printMatch[1],
-                line: lineNumber
-            };
-        }
-    }
-
-    // draw
     if (parts[0] === "draw") {
-
-        const drawMatch = line.match(/draw\.(.+?)\.(square|triangle|circle)$/);
+        const drawMatch =
+            line.match(
+                /^draw\.(.+?)\.(square|triangle|circle)$/
+            );
 
         if (!drawMatch) {
             return {
                 type: "draw",
-                data: parts.slice(1),
-                line: lineNumber
+                data:
+                    parts.slice(1),
+                line:
+                    lineNumber
             };
         }
 
         return {
             type: "draw",
-            data: drawMatch.slice(1),
-            line: lineNumber
+            data:
+                drawMatch.slice(1),
+            line:
+                lineNumber
         };
     }
 
-    // send("message")
-    if (parts[0] === "send") {
-
-        const sendMatch = line.match(/send\("([\s\S]*)"\)/);
-
-        if (sendMatch) {
-
-            return {
-                type: "send",
-                text: sendMatch[1],
-                line: lineNumber
-            };
-        }
-    }
-
-    // when.event.command
     if (parts[0] === "when") {
-
-        const event = parts[1];
-        const command = parts.slice(2).join(".");
-
         return {
             type: "when",
-            event: event,
-            command: command,
-            line: lineNumber
+            event:
+                parts[1],
+            command:
+                parts
+                    .slice(2)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // wait.seconds
     if (parts[0] === "wait") {
-
-        const seconds = parts.slice(1).join(".");
-
         return {
             type: "wait",
-            seconds: seconds,
-            line: lineNumber
+            seconds:
+                parts
+                    .slice(1)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // end.wait.seconds
-    if (parts[0] === "end" && parts[1] === "wait") {
+    // ========================================================
+    // END.WAIT
+    // ========================================================
 
-        const seconds = parts.slice(2).join(".");
-
+    if (
+        parts[0] === "end" &&
+        parts[1] === "wait"
+    ) {
         return {
             type: "endWait",
-            seconds: seconds,
-            line: lineNumber
+            seconds:
+                parts
+                    .slice(2)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // end.repeat.times
-    if (parts[0] === "end" && parts[1] === "repeat") {
+    // ========================================================
+    // END.REPEAT
+    // ========================================================
 
-        const times = parts.slice(2).join(".");
-
+    if (
+        parts[0] === "end" &&
+        parts[1] === "repeat"
+    ) {
         return {
             type: "endRepeat",
-            times: times,
-            line: lineNumber
+            times:
+                parts
+                    .slice(2)
+                    .join("."),
+            line:
+                lineNumber
         };
     }
 
-    // use.#destination.#source
+    // ========================================================
+    // USE
+    // ========================================================
+
     if (parts[0] === "use") {
-
-        const destination = parts[1];
-        const source = parts[2];
-
         return {
             type: "use",
-            destination: destination,
-            source: source,
-            line: lineNumber
+            destination:
+                parts[1],
+            source:
+                parts[2],
+            line:
+                lineNumber
         };
     }
 
-    // percentage (value%)
+    // ========================================================
+    // PERCENTAGE
+    // ========================================================
+
     if (line.endsWith("%")) {
-
-        const value = line.slice(0, -1);
-
         return {
             type: "percentage",
-            value: value,
-            line: lineNumber
+            value:
+                line.slice(
+                    0,
+                    -1
+                ),
+            line:
+                lineNumber
         };
     }
 
-    // function call: name()
-    const callMatch = line.match(/^(\w+)\(\)$/);
+    // ========================================================
+    // FUNCTION CALL
+    // ========================================================
+    // D-TECH functions are executed with:
+    //
+    // functionName()
+    //
+    // "call()" is NOT a D-TECH command.
+    // ========================================================
+
+    const callMatch =
+        line.match(
+            /^(\w+)\(\)$/
+        );
 
     if (callMatch) {
-
         return {
             type: "call",
-            name: callMatch[1],
-            line: lineNumber
+            name:
+                callMatch[1],
+            line:
+                lineNumber
         };
     }
 
-    // ========== UNKNOWN ==========
+    // ========================================================
+    // UNKNOWN
+    // ========================================================
 
     return {
         type: "unknown",
-        source: line,
-        line: lineNumber
+        source:
+            line,
+        line:
+            lineNumber
     };
 }
 
-
 // ============================================================
-// EJECUTOR
+// EXECUTOR
 // ============================================================
 
 async function executeNodes(nodes) {
-
     for (const node of nodes) {
 
         if (!state.running) {
@@ -1324,14 +1487,10 @@ async function executeNodes(nodes) {
 
         if (
             result &&
-            result.type === "return"
-        ) {
-            return result;
-        }
-
-        if (
-            result &&
-            result.type === "end"
+            (
+                result.type === "return" ||
+                result.type === "end"
+            )
         ) {
             return result;
         }
@@ -1340,78 +1499,578 @@ async function executeNodes(nodes) {
     return null;
 }
 
+// ============================================================
+// SERVER
+// ============================================================
+function startNetworkClient() {
+    return new Promise((resolve) => {
+        const python = spawn(
+            "python",
+            [
+                path.join(
+                    __dirname,
+                    "network.py"
+                )
+            ],
+            {
+                stdio: "inherit"
+            }
+        );
+
+        python.on("error", error => {
+            dtechError(
+                `Could not start network.py: ${error.message}`
+            );
+
+            resolve(1);
+        });
+
+        python.on("close", code => {
+            resolve(
+                code ?? 0
+            );
+        });
+    });
+}
+
+function showServerPrompt() {
+    if (
+        state.server.running &&
+        state.server.consoleActive
+    ) {
+        process.stdout.write(
+            "SUDO@SERVER-:=> "
+        );
+    }
+}
+
+function showServerHelp() {
+    console.log("");
+    console.log("D-TECH SERVER COMMANDS");
+    console.log("");
+    console.log(
+        "  help              Show this help"
+    );
+    console.log(
+        "  status            Show server status"
+    );
+    console.log(
+        "  list              List connected clients"
+    );
+    console.log(
+        "  requests          List pending requests"
+    );
+    console.log(
+        "  accept <id>       Accept a pending request"
+    );
+    console.log(
+        "  reject <id>       Reject a pending request"
+    );
+    console.log(
+        "  clear             Clear the terminal"
+    );
+    console.log(
+        "  shutdown          Shutdown the server"
+    );
+    console.log("");
+}
+
+function showServerStatus() {
+    console.log("");
+    console.log("SERVER STATUS");
+    console.log("");
+    console.log(
+        `  Status: ${
+            state.server.running
+                ? "RUNNING"
+                : "STOPPED"
+        }`
+    );
+    console.log(
+        `  Port: ${state.server.port}`
+    );
+    console.log(
+        `  Max connections: ${state.server.maxJoins}`
+    );
+    console.log(
+        `  Active connections: ${state.server.connections}`
+    );
+    console.log(
+        `  Connected clients: ${state.server.clients.length}`
+    );
+    console.log(
+        `  Pending requests: ${state.server.pendingRequests.size}`
+    );
+    console.log("");
+}
+
+function showServerList() {
+    console.log("");
+
+    if (
+        state.server.clients.length === 0
+    ) {
+        console.log(
+            "Connected clients: none."
+        );
+        console.log("");
+        return;
+    }
+
+    console.log("CONNECTED CLIENTS");
+
+    for (
+        const client of state.server.clients
+    ) {
+        console.log(
+            `  ${client.id} | ${client.ip} | ${client.method} ${client.url}`
+        );
+    }
+
+    console.log("");
+}
+
+function showPendingRequests() {
+    console.log("");
+
+    if (
+        state.server.pendingRequests.size === 0
+    ) {
+        console.log(
+            "Pending requests: none."
+        );
+        console.log("");
+        return;
+    }
+
+    console.log("PENDING REQUESTS");
+
+    for (
+        const [id, request]
+        of state.server.pendingRequests
+    ) {
+        console.log(
+            `  ${id} | ${request.ip} | ${request.method} ${request.url}`
+        );
+    }
+
+    console.log("");
+}
+
+function findPendingRequest(id) {
+    const numericId =
+        Number(id);
+
+    if (
+        !Number.isInteger(
+            numericId
+        ) ||
+        !state.server.pendingRequests.has(
+            numericId
+        )
+    ) {
+        return null;
+    }
+
+    return state.server.pendingRequests.get(
+        numericId
+    );
+}
+
+function acceptRequest(id) {
+    const request =
+        findPendingRequest(id);
+
+    if (!request) {
+        console.log(
+            `Request ${id} was not found.`
+        );
+
+        return;
+    }
+
+    state.server.pendingRequests.delete(
+        Number(id)
+    );
+
+    const client = {
+        id:
+            request.id,
+        ip:
+            request.ip,
+        method:
+            request.method,
+        url:
+            request.url
+    };
+
+    state.server.clients.push(
+        client
+    );
+
+    console.log(
+        `[SERVER] Request ${id} ACCEPTED`
+    );
+
+    try {
+        request.res.writeHead(200);
+        request.res.end("OK");
+    } catch (_) {}
+
+    state.server.connections =
+        Math.max(
+            0,
+            state.server.connections - 1
+        );
+}
+
+function rejectRequest(id) {
+    const request =
+        findPendingRequest(id);
+
+    if (!request) {
+        console.log(
+            `Request ${id} was not found.`
+        );
+
+        return;
+    }
+
+    state.server.pendingRequests.delete(
+        Number(id)
+    );
+
+    console.log(
+        `[SERVER] Request ${id} REJECTED`
+    );
+
+    try {
+        request.res.writeHead(403);
+        request.res.end("Forbidden");
+    } catch (_) {}
+
+    state.server.connections =
+        Math.max(
+            0,
+            state.server.connections - 1
+        );
+}
+
+async function shutdownServer() {
+    if (!state.server.server) {
+        console.log(
+            "Server is not running."
+        );
+
+        return;
+    }
+
+    console.log(
+        "Shutting down D-TECH server..."
+    );
+
+    for (
+        const [id, request]
+        of state.server.pendingRequests
+    ) {
+        try {
+            request.res.writeHead(503);
+            request.res.end(
+                "Server shutting down"
+            );
+        } catch (_) {}
+
+        state.server.pendingRequests.delete(
+            id
+        );
+    }
+
+    await new Promise(resolve => {
+        state.server.server.close(
+            () => {
+                resolve();
+            }
+        );
+    });
+
+    state.server.running = false;
+    state.server.consoleActive = false;
+    state.server.server = null;
+    state.server.connections = 0;
+    state.server.pendingRequests.clear();
+
+    state.running = false;
+
+    console.log(
+        "Server stopped."
+    );
+}
+
+async function handleServerCommand(input) {
+    const command =
+        String(input).trim();
+
+    if (!command) {
+        showServerPrompt();
+        return;
+    }
+
+    const args =
+        command.split(/\s+/);
+
+    const cmd =
+        args[0].toLowerCase();
+
+    switch (cmd) {
+
+        case "help":
+            showServerHelp();
+            break;
+
+        case "status":
+            showServerStatus();
+            break;
+
+        case "list":
+            showServerList();
+            break;
+
+        case "requests":
+            showPendingRequests();
+            break;
+
+        case "accept":
+
+            if (!args[1]) {
+                console.log(
+                    "Usage: accept <id>"
+                );
+            } else {
+                acceptRequest(
+                    args[1]
+                );
+            }
+
+            break;
+
+        case "reject":
+
+            if (!args[1]) {
+                console.log(
+                    "Usage: reject <id>"
+                );
+            } else {
+                rejectRequest(
+                    args[1]
+                );
+            }
+
+            break;
+
+        case "clear":
+            console.clear();
+            break;
+
+        case "shutdown":
+            await shutdownServer();
+            return;
+
+        default:
+            console.log(
+                `Unknown server command: ${cmd}`
+            );
+
+            console.log(
+                "Use 'help' to see available commands."
+            );
+
+            break;
+    }
+
+    if (state.server.running) {
+        showServerPrompt();
+    }
+}
 
 // ============================================================
-// EJECUTAR NODO
+// SERVER INPUT
+// ============================================================
+
+rl.on("line", async input => {
+    if (
+        state.server.running &&
+        state.server.consoleActive
+    ) {
+        await handleServerCommand(
+            input
+        );
+    }
+});
+
+// ============================================================
+// EXECUTE NODE
 // ============================================================
 
 async function executeNode(node) {
 
     switch (node.type) {
+case "networkConnect":
 
-        // ----------------------------------------------------
-        // START SERVER
-        // ----------------------------------------------------
+    await startNetworkClient();
+
+    return null;
+        // ====================================================
+        // SERVER
+        // ====================================================
 
         case "startServer": {
 
-            state.server.port = node.port;
-            state.server.maxJoins = node.maxJoins;
+            state.server.port =
+                node.port;
 
-            const server = http.createServer((req, res) => {
+            state.server.maxJoins =
+                node.maxJoins;
 
-                if (state.server.connections >= state.server.maxJoins) {
+            const server =
+                http.createServer(
+                    (req, res) => {
 
-                    const logMsg = `[SERVER] REJECTED: Max connections (${state.server.maxJoins}) reached. IP: ${req.socket.remoteAddress}`;
-                    runtimeLog(logMsg);
+                        if (
+                            state.server.connections >=
+                            state.server.maxJoins
+                        ) {
+                            const logMsg =
+                                `[SERVER] REJECTED: Max connections (${state.server.maxJoins}) reached. IP: ${req.socket.remoteAddress}`;
 
-                    res.writeHead(503);
-                    res.end("Server at max capacity");
-                    return;
-                }
+                            dtechInfo(
+                                logMsg
+                            );
 
-                state.server.connections++;
+                            res.writeHead(
+                                503
+                            );
 
-                const logMsg = `[SERVER LOG] Incoming request from IP: ${req.socket.remoteAddress} | Method: ${req.method} | URL: ${req.url}`;
-                runtimeLog(logMsg);
+                            res.end(
+                                "Server at max capacity"
+                            );
 
-                // SUDO@SERVER prompt
-                console.log("\n🔒 SUDO@SERVER-:=>"); 
-                rl.question("Accept request? (y/n): ", (answer) => {
+                            return;
+                        }
 
-                    if (answer.toLowerCase() === "y") {
+                        state.server.connections++;
 
-                        console.log("[SERVER] Request ACCEPTED");
-                        res.writeHead(200);
-                        res.end("OK");
+                        const requestId =
+                            state.server.nextRequestId++;
 
-                    } else {
+                        const request = {
+                            id:
+                                requestId,
+                            ip:
+                                req.socket.remoteAddress,
+                            method:
+                                req.method,
+                            url:
+                                req.url,
+                            res
+                        };
 
-                        console.log("[SERVER] Request REJECTED");
-                        res.writeHead(403);
-                        res.end("Forbidden");
+                        state.server.pendingRequests.set(
+                            requestId,
+                            request
+                        );
+
+                        dtechInfo(
+                            `[SERVER] Incoming request #${requestId} from IP: ${req.socket.remoteAddress} | Method: ${req.method} | URL: ${req.url}`
+                        );
+
+                        console.log("");
+                        console.log(
+                            `Incoming request #${requestId}`
+                        );
+                        console.log(
+                            `   IP: ${req.socket.remoteAddress}`
+                        );
+                        console.log(
+                            `   Method: ${req.method}`
+                        );
+                        console.log(
+                            `   URL: ${req.url}`
+                        );
+
+                        showServerPrompt();
                     }
+                );
 
-                    state.server.connections--;
-                });
-            });
+            state.server.server =
+                server;
 
-            server.listen(state.server.port, () => {
+            await new Promise(
+                (resolve, reject) => {
 
-                dtechInfo(`Server started on port ${state.server.port}`);
-                dtechInfo(`Max connections allowed: ${state.server.maxJoins}`);
-                console.log("\n📡 Server console active. Waiting for requests...\n");
-            });
+                    const onError =
+                        error => {
+                            server.off(
+                                "listening",
+                                onListening
+                            );
 
-            state.server.server = server;
-            state.server.running = true;
+                            reject(error);
+                        };
+
+                    const onListening =
+                        () => {
+                            server.off(
+                                "error",
+                                onError
+                            );
+
+                            state.server.running =
+                                true;
+
+                            state.server.consoleActive =
+                                true;
+
+                            resolve();
+                        };
+
+                    server.once(
+                        "error",
+                        onError
+                    );
+
+                    server.once(
+                        "listening",
+                        onListening
+                    );
+
+                    server.listen(
+                        state.server.port
+                    );
+                }
+            );
+
+            console.log(
+                "D-TECH Server initialized"
+            );
+
+            console.log(
+                `Listening on port ${state.server.port}`
+            );
+
+            console.log(
+                `Max connections: ${state.server.maxJoins}`
+            );
+
+            console.log(
+                "Interactive server console active."
+            );
 
             return null;
         }
 
-        // ----------------------------------------------------
+        // ====================================================
         // VARIABLE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "createVariable":
 
@@ -1419,160 +2078,198 @@ async function executeNode(node) {
                 node.dataType;
 
             state.variables[node.name] =
-                defaultValue(node.dataType);
+                defaultValue(
+                    node.dataType
+                );
 
             dtechInfo(
-                `Variable creada: ${node.name}`
+                `Variable created: ${node.name}`
             );
 
             return null;
 
-
-        // ----------------------------------------------------
-        // OBJETO
-        // ----------------------------------------------------
+        // ====================================================
+        // OBJECT
+        // ====================================================
 
         case "createObject":
 
             state.variables[node.name] = {
-                type: node.shape
+                type:
+                    node.shape
             };
 
             dtechInfo(
-                `Objeto ${node.shape} creado: ${node.name}`
+                `Object ${node.shape} created: ${node.name}`
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // INPUT
-        // ----------------------------------------------------
+        // ====================================================
 
         case "input":
 
-            await new Promise(resolve => {
+            await new Promise(
+                resolve => {
+                    rl.question(
+                        "INPUT > ",
+                        answer => {
 
-                rl.question(
-                    "INPUT > ",
-                    answer => {
+                            state.variables[
+                                "#input"
+                            ] = answer;
 
-                        state.variables["#input"] =
-                            answer;
-
-                        resolve();
-                    }
-                );
-
-            });
+                            resolve();
+                        }
+                    );
+                }
+            );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // MOUSE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "mouseInput":
 
             dtechWarning(
-                "input.mouse requiere un entorno gráfico."
+                "input.mouse requires a graphical environment."
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // AFFILIATE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "affiliate":
 
-            state.afiliaciones[node.symbol] =
+            state.afiliaciones[
+                node.symbol
+            ] =
                 node.variable;
 
             dtechInfo(
-                `${node.symbol} afiliado a ${node.variable}`
+                `${node.symbol} affiliated with ${node.variable}`
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // CONSOLE
-        // ----------------------------------------------------
+        // ====================================================
 
-        case "console":
+        case "console": {
 
-            if (node.mode === "all") {
+            const mode =
+                node.mode;
 
-                state.console.info =
-                    node.value;
-
-                state.console.debug =
-                    node.value;
-
-                state.console.warning =
-                    node.value;
-
-                state.console.error =
-                    node.value;
-
-                return null;
-            }
-
-            if (node.mode === "log") {
-
-                state.log.enabled =
-                    node.value;
-
-                return null;
-            }
-
-            state.console[node.mode] =
+            const value =
                 node.value;
 
+            if (mode === "all") {
+
+                state.console.all =
+                    value;
+
+                state.console.info =
+                    value;
+
+                state.console.debug =
+                    value;
+
+                state.console.warning =
+                    value;
+
+                state.console.error =
+                    value;
+
+                return null;
+            }
+
+            if (
+                [
+                    "info",
+                    "debug",
+                    "warning",
+                    "error"
+                ].includes(mode)
+            ) {
+                state.console[mode] =
+                    value;
+
+                return null;
+            }
+
             return null;
+        }
 
+        // ====================================================
+        // INFO MESSAGE
+        // ====================================================
 
-        // ----------------------------------------------------
+        case "consoleInfoMessage": {
+
+            const message =
+                replaceVariables(
+                    node.message
+                );
+
+            if (
+                state.console.all ||
+                state.console.info
+            ) {
+                console.log(message);
+                writeLog(message);
+            }
+
+            return null;
+        }
+
+        // ====================================================
         // LOG FILE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "logFile":
 
             state.log.file =
                 node.file;
 
-            state.log.enabled = true;
+            state.log.enabled =
+                true;
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // LET
-        // ----------------------------------------------------
+        // ====================================================
 
         case "let":
 
             if (node.source) {
-
-                state.variables[node.destination] =
-                    state.variables[node.source];
-
+                state.variables[
+                    node.destination
+                ] =
+                    state.variables[
+                        node.source
+                    ];
             }
 
             return null;
 
-
-        // --------------------------------------------------------
+        // ====================================================
         // SET
-        // --------------------------------------------------------
+        // ====================================================
 
         case "set": {
 
             const value =
-                evaluate(node.value);
+                evaluate(
+                    node.value
+                );
 
             setVariable(
                 node.name,
@@ -1586,153 +2283,182 @@ async function executeNode(node) {
             return null;
         }
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ARRAY CREATE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "arrayCreate":
 
-            state.arrays[node.name] = [];
+            state.arrays[
+                node.name
+            ] = [];
 
-            state.tipos[node.name] =
+            state.tipos[
+                node.name
+            ] =
                 node.dataType;
 
             dtechDebug(
-                `Array creado: ${node.name} (${node.dataType})`
+                `Array created: ${node.name} (${node.dataType})`
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ARRAY ADD
-        // ----------------------------------------------------
+        // ====================================================
 
         case "arrayAdd":
 
-            if (!state.arrays[node.name]) {
-                state.arrays[node.name] = [];
+            if (
+                !state.arrays[node.name]
+            ) {
+                state.arrays[node.name] =
+                    [];
             }
 
-            state.arrays[node.name].push(
-                evaluate(node.value)
+            state.arrays[
+                node.name
+            ].push(
+                evaluate(
+                    node.value
+                )
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ARRAY REMOVE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "arrayRemove":
 
             if (
                 state.arrays[node.name]
             ) {
-
-                state.arrays[node.name].pop();
+                state.arrays[
+                    node.name
+                ].pop();
             }
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ARRAY PRINT
-        // ----------------------------------------------------
+        // ====================================================
 
         case "arrayPrint":
 
             console.log(
-                state.arrays[node.name] || []
+                state.arrays[
+                    node.name
+                ] || []
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ARRAY RENAME
-        // ----------------------------------------------------
+        // ====================================================
 
         case "arrayRename":
 
             if (
-                state.arrays[node.oldName]
+                state.arrays[
+                    node.oldName
+                ]
             ) {
+                state.arrays[
+                    node.newName
+                ] =
+                    state.arrays[
+                        node.oldName
+                    ];
 
-                state.arrays[node.newName] =
-                    state.arrays[node.oldName];
-
-                delete state.arrays[node.oldName];
+                delete state.arrays[
+                    node.oldName
+                ];
             }
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // FILE READ
-        // ----------------------------------------------------
+        // ====================================================
 
         case "fileRead": {
 
             const target =
-                cleanPath(node.file);
+                cleanPath(
+                    node.file
+                );
 
-            if (!fs.existsSync(target)) {
-
+            if (
+                !fs.existsSync(target)
+            ) {
                 dtechError(
-                    `Archivo no encontrado: ${target}`
+                    `File not found: ${target}`
                 );
 
                 return null;
             }
 
-            const content =
+            state.variables[
+                "#file"
+            ] =
                 fs.readFileSync(
                     target,
                     "utf8"
                 );
 
-            state.variables["#file"] =
-                content;
-
             return null;
         }
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // FILE WRITE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "fileWrite": {
 
             const target =
-                cleanPath(node.file);
+                cleanPath(
+                    node.file
+                );
 
             const content =
-                evaluate(node.value);
+                evaluate(
+                    node.value
+                );
 
-            fs.writeFileSync(
-                target,
-                String(content)
-            );
+            try {
+                fs.writeFileSync(
+                    target,
+                    String(content),
+                    "utf8"
+                );
+            } catch (error) {
+                dtechError(
+                    `Could not write file: ${error.message}`
+                );
+            }
 
             return null;
         }
 
-
-        // ----------------------------------------------------
-        // FOR
-        // ----------------------------------------------------
+        // ====================================================
+        // BLOCKS
+        // ====================================================
 
         case "block":
 
-            if (node.blockType === "for") {
-
+            if (
+                node.blockType === "for"
+            ) {
                 const times =
                     Number(
-                        evaluate(node.value)
+                        evaluate(
+                            node.value
+                        )
                     );
 
                 for (
@@ -1740,7 +2466,6 @@ async function executeNode(node) {
                     i < times;
                     i++
                 ) {
-
                     const result =
                         await executeNodes(
                             node.body
@@ -1754,15 +2479,12 @@ async function executeNode(node) {
                 return null;
             }
 
-
-            // FOREVER
-
             if (
                 node.blockType === "forever"
             ) {
-
-                while (state.running) {
-
+                while (
+                    state.running
+                ) {
                     const result =
                         await executeNodes(
                             node.body
@@ -1781,19 +2503,14 @@ async function executeNode(node) {
                 return null;
             }
 
-
-            // IF
-
             if (
                 node.blockType === "if"
             ) {
-
                 if (
                     evaluateCondition(
                         node.condition
                     )
                 ) {
-
                     return await executeNodes(
                         node.body
                     );
@@ -1802,13 +2519,9 @@ async function executeNode(node) {
                 return null;
             }
 
-
-            // WHILE
-
             if (
                 node.blockType === "while"
             ) {
-
                 let safety = 0;
 
                 while (
@@ -1816,7 +2529,6 @@ async function executeNode(node) {
                         node.condition
                     )
                 ) {
-
                     const result =
                         await executeNodes(
                             node.body
@@ -1828,10 +2540,11 @@ async function executeNode(node) {
 
                     safety++;
 
-                    if (safety > 100000) {
-
+                    if (
+                        safety > 100000
+                    ) {
                         dtechError(
-                            "While detenido por seguridad."
+                            "While loop stopped for safety."
                         );
 
                         break;
@@ -1841,18 +2554,16 @@ async function executeNode(node) {
                 return null;
             }
 
-
-            // FUNCTION
-
             if (
                 node.blockType === "function"
             ) {
-
-                state.funciones[node.name] =
+                state.funciones[
+                    node.name
+                ] =
                     node.body;
 
                 dtechDebug(
-                    `Función registrada: ${node.name}`
+                    `Function registered: ${node.name}`
                 );
 
                 return null;
@@ -1860,10 +2571,9 @@ async function executeNode(node) {
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ELSE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "else":
 
@@ -1871,10 +2581,9 @@ async function executeNode(node) {
                 node.command
             );
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // ELSEIF
-        // ----------------------------------------------------
+        // ====================================================
 
         case "elseIf":
 
@@ -1883,7 +2592,6 @@ async function executeNode(node) {
                     node.condition
                 )
             ) {
-
                 return await executeNodes(
                     node.body
                 );
@@ -1891,25 +2599,26 @@ async function executeNode(node) {
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // RETURN
-        // ----------------------------------------------------
+        // ====================================================
 
         case "return":
 
             state.returnValue =
-                evaluate(node.value);
+                evaluate(
+                    node.value
+                );
 
             return {
                 type: "return",
-                value: state.returnValue
+                value:
+                    state.returnValue
             };
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // IMPORT
-        // ----------------------------------------------------
+        // ====================================================
 
         case "import":
 
@@ -1918,44 +2627,49 @@ async function executeNode(node) {
             );
 
             dtechInfo(
-                `Import registrado: ${node.name}`
+                `Import registered: ${node.name}`
             );
 
             return null;
 
-
-        // ----------------------------------------------------
-        // INSTRUCCION
-        // ----------------------------------------------------
+        // ====================================================
+        // INSTRUCTION
+        // ====================================================
 
         case "instruction":
 
             dtechDebug(
-                `Instrucción prioridad ${node.priority}: ${node.command}`
+                `Instruction priority ${node.priority}: ${node.command}`
             );
 
             return await executeCommandString(
                 node.command
             );
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // PRINT.LINE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "printLine": {
 
             const delay =
                 Number(
-                    evaluate(node.delay)
+                    evaluate(
+                        node.delay
+                    )
                 );
 
             const text =
-                replaceVariables(node.text);
+                replaceVariables(
+                    node.text
+                );
 
-            for (const char of text) {
-
-                process.stdout.write(char);
+            for (
+                const char of text
+            ) {
+                process.stdout.write(
+                    char
+                );
 
                 await sleep(
                     Math.max(
@@ -1965,19 +2679,20 @@ async function executeNode(node) {
                 );
             }
 
-            process.stdout.write("\n");
+            process.stdout.write(
+                "\n"
+            );
 
             return null;
         }
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // PRINT
-        // ----------------------------------------------------
+        // ====================================================
 
         case "print":
 
-            runtimeLog(
+            console.log(
                 replaceVariables(
                     node.text
                 )
@@ -1985,91 +2700,102 @@ async function executeNode(node) {
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // DRAW
-        // ----------------------------------------------------
+        // ====================================================
 
         case "draw":
 
-            executeDraw(node.data);
+            executeDraw(
+                node.data
+            );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // SEND
-        // ----------------------------------------------------
+        // ====================================================
 
         case "send":
 
-            runtimeLog(
+            dtechInfo(
                 `[SEND] ${replaceVariables(node.text)}`
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // WHEN
-        // ----------------------------------------------------
+        // ====================================================
 
         case "when":
 
-            if (!state.eventos[node.event]) {
-                state.eventos[node.event] = [];
+            if (
+                !state.eventos[
+                    node.event
+                ]
+            ) {
+                state.eventos[
+                    node.event
+                ] = [];
             }
 
-            state.eventos[node.event].push(
+            state.eventos[
+                node.event
+            ].push(
                 node.command
             );
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // WAIT
-        // ----------------------------------------------------
+        // ====================================================
 
         case "wait":
 
             await sleep(
                 Number(
-                    evaluate(node.seconds)
+                    evaluate(
+                        node.seconds
+                    )
                 ) * 1000
             );
 
             return null;
 
-
-        // ----------------------------------------------------
-        // END WAIT
-        // ----------------------------------------------------
+        // ====================================================
+        // END.WAIT
+        // ====================================================
 
         case "endWait":
 
             await sleep(
                 Number(
-                    evaluate(node.seconds)
+                    evaluate(
+                        node.seconds
+                    )
                 ) * 1000
             );
 
-            state.running = false;
+            state.running =
+                false;
 
             return {
                 type: "end"
             };
 
-
-        // ----------------------------------------------------
-        // END REPEAT
-        // ----------------------------------------------------
+        // ====================================================
+        // END.REPEAT
+        // ====================================================
 
         case "endRepeat": {
 
             const times =
                 Number(
-                    evaluate(node.times)
+                    evaluate(
+                        node.times
+                    )
                 );
 
             for (
@@ -2077,64 +2803,76 @@ async function executeNode(node) {
                 i < times;
                 i++
             ) {
-                // Este comando es manejado
-                // como marcador de repetición.
+                // Repeat marker.
             }
 
             return null;
         }
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // END
-        // ----------------------------------------------------
+        // ====================================================
 
         case "end":
 
-            state.running = false;
+            state.running =
+                false;
 
             return {
                 type: "end"
             };
 
-
-        // ----------------------------------------------------
-        // CALL
-        // ----------------------------------------------------
+        // ====================================================
+        // FUNCTION CALL
+        // ====================================================
+        // D-TECH:
+        //
+        // function test
+        //     ...
+        // end
+        //
+        // test()
+        //
+        // ====================================================
 
         case "call":
 
             if (
-                !state.funciones[node.name]
+                !state.funciones[
+                    node.name
+                ]
             ) {
-
                 dtechError(
-                    `La función ${node.name} no existe.`
+                    `Function ${node.name} does not exist.`
                 );
 
                 return null;
             }
 
             return await executeNodes(
-                state.funciones[node.name]
+                state.funciones[
+                    node.name
+                ]
             );
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // USE
-        // ----------------------------------------------------
+        // ====================================================
 
         case "use":
 
-            state.variables[node.destination] =
-                state.variables[node.source];
+            state.variables[
+                node.destination
+            ] =
+                state.variables[
+                    node.source
+                ];
 
             return null;
 
-
-        // ----------------------------------------------------
-        // PORCENTAJE
-        // ----------------------------------------------------
+        // ====================================================
+        // PERCENTAGE
+        // ====================================================
 
         case "percentage":
 
@@ -2144,34 +2882,31 @@ async function executeNode(node) {
 
             return null;
 
-
-        // ----------------------------------------------------
+        // ====================================================
         // UNKNOWN
-        // ----------------------------------------------------
+        // ====================================================
 
         case "unknown":
 
             dtechError(
-                `Comando D-TECH desconocido: ${node.source}`,
+                `Unknown D-TECH command: ${node.source}`,
                 node.line
             );
 
             return null;
 
-
         default:
 
             dtechError(
-                `Nodo desconocido: ${node.type}`
+                `Unknown node type: ${node.type}`
             );
 
             return null;
     }
 }
 
-
 // ============================================================
-// CONDICIONES
+// CONDITIONS
 // ============================================================
 
 function evaluateCondition(condition) {
@@ -2179,21 +2914,13 @@ function evaluateCondition(condition) {
     condition =
         condition.trim();
 
-
-    // formato:
-    //
-    // #life.using.#health
-    //
-    // o:
-    //
-    // #life == #health
-
     if (
         condition.includes(".using.")
     ) {
-
         const parts =
-            condition.split(".using.");
+            condition.split(
+                ".using."
+            );
 
         const left =
             evaluate(parts[0]);
@@ -2204,28 +2931,30 @@ function evaluateCondition(condition) {
         return left === right;
     }
 
-
     return Boolean(
-        evaluateExpression(condition)
+        evaluateExpression(
+            condition
+        )
     );
 }
 
-
 // ============================================================
-// EJECUTAR COMANDO INDIVIDUAL
+// INDIVIDUAL COMMAND
 // ============================================================
 
-async function executeCommandString(command) {
-
+async function executeCommandString(
+    command
+) {
     const node =
         transformLine(
             command,
             0
         );
 
-    return await executeNode(node);
+    return await executeNode(
+        node
+    );
 }
-
 
 // ============================================================
 // DRAW
@@ -2233,8 +2962,14 @@ async function executeCommandString(command) {
 
 function executeDraw(data) {
 
-    if (!data || data.length < 2) {
-        dtechError("DRAW inválido.");
+    if (
+        !data ||
+        data.length < 2
+    ) {
+        dtechError(
+            "Invalid DRAW command."
+        );
+
         return;
     }
 
@@ -2242,82 +2977,71 @@ function executeDraw(data) {
     let figura;
 
     if (
-        ["square", "triangle", "circle"]
-            .includes(data[0])
+        [
+            "square",
+            "triangle",
+            "circle"
+        ].includes(data[0])
     ) {
+        figura =
+            data[0];
 
-        figura = data[0];
-        radio = data[1];
-
+        radio =
+            data[1];
     } else {
+        radio =
+            data[0];
 
-        radio = data[0];
-        figura = data[1];
+        figura =
+            data[1];
     }
-
 
     radio =
         Number(
             evaluate(radio)
         );
 
-
     switch (figura) {
 
         case "square":
-
             console.log(
                 "┌──────┐"
             );
-
             console.log(
                 "│      │"
             );
-
             console.log(
                 "│      │"
             );
-
             console.log(
                 "└──────┘"
             );
-
             break;
 
-
         case "triangle":
-
             console.log(
                 "   △"
             );
-
             break;
 
-
         case "circle":
-
             console.log(
                 "  ◯"
             );
-
             break;
 
-
         default:
-
             dtechError(
-                `Figura desconocida: ${figura}`
+                `Unknown figure: ${figura}`
             );
     }
 }
 
-
 // ============================================================
-// DEFAULT VALUE
+// DEFAULT VALUES
 // ============================================================
 
 function defaultValue(type) {
-
     switch (type) {
 
         case "int":
@@ -2337,7 +3061,6 @@ function defaultValue(type) {
     }
 }
 
-
 // ============================================================
 // PATH
 // ============================================================
@@ -2350,8 +3073,10 @@ function cleanPath(filePath) {
         );
 
     filePath =
-        filePath
-            .replace(/^["']|["']$/g, "");
+        filePath.replace(
+            /^["']|["']$/g,
+            ""
+        );
 
     return path.resolve(
         path.dirname(file),
@@ -2359,19 +3084,19 @@ function cleanPath(filePath) {
     );
 }
 
-
 // ============================================================
 // SLEEP
 // ============================================================
 
 function sleep(ms) {
-
     return new Promise(
         resolve =>
-            setTimeout(resolve, ms)
+            setTimeout(
+                resolve,
+                ms
+            )
     );
 }
-
 
 // ============================================================
 // MAIN
@@ -2393,57 +3118,55 @@ async function run() {
             "================================"
         );
 
-
-        // ----------------------------------------------------
-        // LEER
-        // ----------------------------------------------------
-
         const source =
             fs.readFileSync(
                 file,
                 "utf8"
-            ).replace(/^\uFEFF/, "");
-
-
-        // ----------------------------------------------------
-        // TRANSFORMAR
-        // ----------------------------------------------------
+            ).replace(
+                /^\uFEFF/,
+                ""
+            );
 
         const program =
-            parseSource(source);
-
+            parseSource(
+                source
+            );
 
         dtechInfo(
-            `Archivo: ${path.basename(file)}`
+            `File: ${path.basename(file)}`
         );
 
         dtechInfo(
-            `Tipo: ${program.header}`
+            `Type: ${program.header}`
         );
 
         dtechInfo(
-            `Transformación completada.`
+            "Transformation completed."
         );
-
-
-        // ----------------------------------------------------
-        // EJECUTAR
-        // ----------------------------------------------------
 
         await executeNodes(
             program.body
         );
 
+        if (
+            state.server.running
+        ) {
+            console.log("");
 
-        // ----------------------------------------------------
-        // FINAL
-        // ----------------------------------------------------
+            console.log(
+                "Server console active. Waiting for requests..."
+            );
+
+            showServerPrompt();
+
+            return;
+        }
 
         console.log("");
-        console.log(
-            "===== D-TECH FINALIZADO ====="
-        );
 
+        console.log(
+            "===== D-TECH FINISHED ====="
+        );
 
         dtechDebug(
             `Variables: ${JSON.stringify(
@@ -2453,11 +3176,10 @@ async function run() {
             )}`
         );
 
-
-    }
-    catch (error) {
+    } catch (error) {
 
         console.error("");
+
         console.error(
             "================================"
         );
@@ -2474,18 +3196,21 @@ async function run() {
             error.message
         );
 
-        process.exitCode = 1;
+        process.exitCode =
+            1;
 
-    }
-    finally {
+    } finally {
 
-        rl.close();
+        if (
+            !state.server.running
+        ) {
+            rl.close();
 
-        globalThis.__DTECH_RUNNING__ =
-            false;
+            globalThis.__DTECH_RUNNING__ =
+                false;
+        }
     }
 }
-
 
 // ============================================================
 // START
