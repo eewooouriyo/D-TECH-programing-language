@@ -714,6 +714,19 @@ function transformLine(line, lineNumber) {
 
     const parts =
         line.split(".");
+    // ========================================================
+    // NETWORK
+    // ========================================================
+
+    if (
+        parts[0] === "network" &&
+        parts[1] === "connect"
+    ) {
+        return {
+            type: "networkConnect",
+            line: lineNumber
+        };
+    }
 
     // ========================================================
     // NETWORK
@@ -1501,6 +1514,7 @@ async function executeNodes(nodes) {
 }
 
 // ============================================================
+<<<<<<< HEAD
 // SERVER / NETWORK CLIENT
 // ============================================================
 
@@ -1537,7 +1551,40 @@ function startNetworkClient() {
 
 // ============================================================
 // SERVER CONSOLE
+=======
+// SERVER
+>>>>>>> 5292ad4 (Compilator update and D-TECH)
 // ============================================================
+function startNetworkClient() {
+    return new Promise((resolve) => {
+        const python = spawn(
+            "python",
+            [
+                path.join(
+                    __dirname,
+                    "network.py"
+                )
+            ],
+            {
+                stdio: "inherit"
+            }
+        );
+
+        python.on("error", error => {
+            dtechError(
+                `Could not start network.py: ${error.message}`
+            );
+
+            resolve(1);
+        });
+
+        python.on("close", code => {
+            resolve(
+                code ?? 0
+            );
+        });
+    });
+}
 
 function showServerPrompt() {
     if (
@@ -1920,7 +1967,11 @@ rl.on("line", async input => {
 async function executeNode(node) {
 
     switch (node.type) {
+case "networkConnect":
 
+    await startNetworkClient();
+
+    return null;
         // ====================================================
         // NETWORK
         // ====================================================
