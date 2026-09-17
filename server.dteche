@@ -1,5 +1,6 @@
 <type:dtech:executable>
-
+// DISCLAIMER: this is only a test its NOT the final version of servers
+// AVISO: esto solo es una prueba esta NO es la version final de los servidores
 // D-TECH Server Example
 // Ejemplo de servidor en D-TECH
 
@@ -10,9 +11,7 @@
 // Inicia servidor en puerto 3000 con máximo 10 conexiones simultáneas
 @command.start.server.port."3000".max.joins=="10"
 
-print("✅ D-TECH Server initialized successfully!")
-print("📡 Listening on port 3000")
-print("👥 Max connections: 10")
-print("🔒 Interactive console active - use SUDO@SERVER-:=> to control requests")
-
-end
+print("D-TECH Server initialized successfully!")
+print("Listening on port 3000")
+print("Max connections: 10")
+print("Interactive console active - use SUDO@SERVER-:=> to control requests")
