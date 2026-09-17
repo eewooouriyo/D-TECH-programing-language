@@ -1,5 +1,5 @@
-#DISCLAIMER THIS BRANCH ITS VERY OLD DONT USE IT
-#ATENCION ESTA RAMA ES MUY ANTIGUA NO LO USES
+# DISCLAIMER THIS BRANCH ITS VERY OLD DONT USE IT
+# ATENCION ESTA RAMA ES MUY ANTIGUA NO LO USES
 ## D-TECH-programing-language
 this is my OWN programming language named DTECH
 dtech was created because i always wanted to maake a programming language :D DISCLAIRMER almost NO AI was used everything was wrote by MYSELF
