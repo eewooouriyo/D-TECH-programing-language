@@ -1514,7 +1514,6 @@ async function executeNodes(nodes) {
 }
 
 // ============================================================
-<<<<<<< HEAD
 // SERVER / NETWORK CLIENT
 // ============================================================
 
@@ -1551,9 +1550,6 @@ function startNetworkClient() {
 
 // ============================================================
 // SERVER CONSOLE
-=======
-// SERVER
->>>>>>> 5292ad4 (Compilator update and D-TECH)
 // ============================================================
 function startNetworkClient() {
     return new Promise((resolve) => {
